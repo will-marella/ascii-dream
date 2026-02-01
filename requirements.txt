@@ -1,0 +1,9 @@
+# Modal and AI dependencies
+modal>=0.64.0
+
+# Image processing
+pillow>=10.0.0
+
+# Terminal rendering
+rich>=13.0.0
+ascii-magic>=2.3.0
