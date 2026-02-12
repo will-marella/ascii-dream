@@ -5,6 +5,8 @@ ASCII Dream - Beautiful TUI application with Textual + Modal backend.
 import sys
 import io
 import asyncio
+import threading
+import queue
 from typing import Optional
 
 try:
@@ -629,7 +631,7 @@ class DreamScreen(Screen):
 
 
 class LoadingScreen(Screen):
-    """Loading screen while frames are being generated."""
+    """Loading screen while initial frame is being generated."""
 
     CSS = """
     LoadingScreen {
@@ -685,7 +687,12 @@ class LoadingScreen(Screen):
         import time
         self.start_time = time.time()
         self.set_interval(0.1, self.update_timer)
-        self.generate_frames_async()
+        
+        # Start continuous generation in background
+        self.app.start_continuous_generation()
+        
+        # Wait for first frame
+        self.wait_for_first_frame()
 
     def update_timer(self) -> None:
         """Update elapsed time display."""
@@ -699,27 +706,31 @@ class LoadingScreen(Screen):
         except Exception:
             pass
 
-    @work(exclusive=True)
-    async def generate_frames_async(self) -> None:
-        """Generate frames in a worker thread."""
+    @work(exclusive=True, thread=True)
+    def wait_for_first_frame(self) -> None:
+        """Wait for first frame to be generated, then transition to playback."""
         try:
-            # Run the blocking generate_frames in a thread
-            frames = await asyncio.to_thread(self.app.generate_frames)
+            # Block until first frame is ready (with generous timeout)
+            first_frame = self.app.get_next_frame(timeout=120)
             
-            if frames:
-                # Pop this loading screen and push the playback screen
-                self.app.pop_screen()
-                self.app.push_screen(DreamGenerationScreen(frames=frames))
+            if first_frame:
+                # Transition to playback screen on main thread
+                self.app.call_from_thread(self._start_playback, first_frame)
             else:
-                self.app.pop_screen()
-                self.app.notify("No frames generated", severity="error")
+                self.app.call_from_thread(self.app.pop_screen)
+                self.app.call_from_thread(self.app.notify, "No frames generated", "error")
         except Exception as e:
-            self.app.pop_screen()
-            self.app.notify(f"Error: {e}", severity="error")
+            self.app.call_from_thread(self.app.pop_screen)
+            self.app.call_from_thread(self.app.notify, f"Error: {e}", "error")
+    
+    def _start_playback(self, first_frame):
+        """Start playback screen (called from main thread)."""
+        self.app.pop_screen()
+        self.app.push_screen(DreamGenerationScreen(first_frame=first_frame))
 
 
 class DreamGenerationScreen(Screen):
-    """The actual dream generation and display screen."""
+    """The actual dream generation and display screen with continuous generation."""
 
     CSS = """
     DreamGenerationScreen {
@@ -750,10 +761,9 @@ class DreamGenerationScreen(Screen):
         Binding("space", "pause_resume", "Pause/Resume", show=False),
     ]
 
-    def __init__(self, frames: list):
+    def __init__(self, first_frame: tuple):
         super().__init__()
-        self.frames = frames  # Pre-generated frames passed in
-        self.current_frame_index = 0
+        self.current_frame = first_frame  # (ascii_art, prompt)
         self.is_paused = False
 
     def compose(self) -> ComposeResult:
@@ -763,20 +773,17 @@ class DreamGenerationScreen(Screen):
 
     def on_mount(self) -> None:
         """Start playback when screen mounts."""
-        # Start the animation timer
+        # Show first frame immediately
+        self._display_frame(self.current_frame)
+        
+        # Start pulling frames from queue at FPS rate
         fps = self.app.config['fps']
         interval = 1.0 / fps
-        self.set_interval(interval, self._show_next_frame)
-        
-        # Show first frame immediately
-        self._show_next_frame()
+        self.set_interval(interval, self._get_and_display_next_frame)
 
-    def _show_next_frame(self) -> None:
-        """Display the next frame in the animation."""
-        if self.is_paused or not self.frames:
-            return
-        
-        ascii_art, prompt = self.frames[self.current_frame_index]
+    def _display_frame(self, frame: tuple) -> None:
+        """Display a frame on screen."""
+        ascii_art, prompt = frame
         
         try:
             display = self.query_one("#ascii-display", Static)
@@ -788,9 +795,18 @@ class DreamGenerationScreen(Screen):
             display.update(art_text)
         except Exception:
             pass
+
+    def _get_and_display_next_frame(self) -> None:
+        """Pull next frame from queue and display it."""
+        if self.is_paused:
+            return
         
-        # Move to next frame
-        self.current_frame_index = (self.current_frame_index + 1) % len(self.frames)
+        # Try to get next frame from queue (non-blocking)
+        frame = self.app.get_next_frame(timeout=0.01)
+        if frame:
+            self.current_frame = frame
+            self._display_frame(frame)
+        # If no frame available, just keep showing current frame
 
     def action_pause_resume(self) -> None:
         """Toggle pause/resume."""
@@ -803,6 +819,11 @@ class DreamGenerationScreen(Screen):
                 status.update("Esc: Back  •  Q: Quit  •  Space: Pause/Resume")
         except Exception:
             pass
+
+    def on_unmount(self) -> None:
+        """Clean up when screen is closed."""
+        # Stop the background generation thread
+        self.app.stop_continuous_generation()
 
     def action_stop_and_back(self) -> None:
         """Stop and go back."""
@@ -845,16 +866,18 @@ class ASCIIDreamApp(App):
             'journey': 'abstract',
             'custom_prompt': False
         }
+        self.prompt_iterator = None
+        self.converter = None
+        self.frame_queue = None
+        self.generator_thread = None
+        self.stop_generation = None
 
     def on_mount(self) -> None:
         """Initialize the app."""
         self.push_screen(MainMenuScreen())
 
-    def generate_frames(self) -> list:
-        """Generate frames using Modal backend."""
-        if self.generator is None:
-            return []
-        
+    def _initialize_generation(self):
+        """Initialize the prompt iterator and converter."""
         config = self.config
         
         # Get dimensions
@@ -864,37 +887,79 @@ class ASCIIDreamApp(App):
         )
         
         # Initialize converter
-        converter = AsciiConverter(width=80)
+        self.converter = AsciiConverter(width=80)
+        self.image_width = width
+        self.image_height = height
         
-        # Get prompts - generate infinite frames
-        prompt_iter = get_evolver(
+        # Get prompts - infinite iterator
+        self.prompt_iterator = get_evolver(
             journey=config['journey'],
             start_prompt=config['prompt'] if config['prompt'] else None,
             custom=bool(config['prompt']),
         )
+
+    def start_continuous_generation(self, queue_depth: int = 3):
+        """Start background thread for continuous frame generation."""
+        if self.generator is None:
+            return
         
-        frames = []
-        # Generate a buffer of frames (10 frames for smooth looping)
-        frames_to_generate = 10
+        # Initialize if not already done
+        if self.prompt_iterator is None:
+            self._initialize_generation()
         
-        for i in range(frames_to_generate):
-            prompt = next(prompt_iter)
-            
+        # Create queue and stop event
+        self.frame_queue = queue.Queue(maxsize=queue_depth)
+        self.stop_generation = threading.Event()
+        
+        # Start producer thread
+        self.generator_thread = threading.Thread(
+            target=self._generation_worker,
+            daemon=True
+        )
+        self.generator_thread.start()
+
+    def _generation_worker(self):
+        """Background worker that continuously generates frames."""
+        while not self.stop_generation.is_set():
             try:
-                # Generate image via Modal
+                # Get next prompt
+                prompt = next(self.prompt_iterator)
+                
+                # Generate image via Modal (blocking call)
                 image_bytes = self.generator.generate.remote(
-                    prompt, height=height, width=width, seed=None
+                    prompt, height=self.image_height, width=self.image_width, seed=None
                 )
                 
                 # Convert to ASCII
                 image = Image.open(io.BytesIO(image_bytes))
-                ascii_art = converter.convert(image)
-                frames.append((ascii_art, prompt))
+                ascii_art = self.converter.convert(image)
+                
+                # Put in queue (blocks if queue is full - natural backpressure)
+                self.frame_queue.put((ascii_art, prompt))
                 
             except Exception as e:
-                frames.append((f"[Error: {e}]", prompt))
+                # On error, put error frame
+                try:
+                    self.frame_queue.put((f"[Error: {e}]", "error"), timeout=1)
+                except queue.Full:
+                    pass
+
+    def stop_continuous_generation(self):
+        """Stop the background generation thread."""
+        if self.stop_generation:
+            self.stop_generation.set()
+        if self.generator_thread and self.generator_thread.is_alive():
+            self.generator_thread.join(timeout=2)
+
+    def get_next_frame(self, timeout: float = 0.1) -> tuple | None:
+        """Get next frame from queue (non-blocking with timeout)."""
+        if self.frame_queue is None:
+            return None
         
-        return frames
+        try:
+            return self.frame_queue.get(timeout=timeout)
+        except queue.Empty:
+            return None
 
 
 def main(generator=None):
