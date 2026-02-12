@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ascii-dream"
+version = "0.1.0"
+description = "Generate endless evolving ASCII art from AI-powered images"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.8"
+authors = [
+    {name = "Will Cambridge", email = "will@example.com"},
+]
+keywords = ["ascii", "art", "ai", "terminal", "tui", "diffusion"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: System :: Shells",
+    "Topic :: Terminals",
+]
+dependencies = [
+    "modal>=0.64.0",
+    "pillow>=10.0.0",
+    "rich>=13.0.0",
+    "ascii-magic>=2.3.0",
+    "textual>=0.47.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/will-marella/ascii-dream"
+Repository = "https://github.com/will-marella/ascii-dream"
+Issues = "https://github.com/will-marella/ascii-dream/issues"
+
+[project.scripts]
+ascii-dream = "ascii_dream.tui_app:main"
