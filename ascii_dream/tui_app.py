@@ -692,10 +692,87 @@ class DreamScreen(Screen):
 
     def action_start_generation(self) -> None:
         """Start the actual dream generation."""
-        # Generate frames synchronously (in Modal context), then show playback screen
-        frames = self.app.generate_frames()
-        if frames:
-            self.app.push_screen(DreamGenerationScreen(frames=frames))
+        # Push loading screen and start generation worker
+        self.app.push_screen(LoadingScreen())
+
+
+class LoadingScreen(Screen):
+    """Loading screen while frames are being generated."""
+
+    CSS = """
+    LoadingScreen {
+        align: center middle;
+        background: $background;
+    }
+
+    #loading-box {
+        width: 70;
+        height: auto;
+        border: solid $accent;
+        padding: 2 4;
+        background: $surface;
+    }
+
+    .loading-row {
+        width: 100%;
+        height: auto;
+        content-align: center middle;
+        margin: 1;
+    }
+
+    #progress {
+        width: 100%;
+        height: auto;
+        content-align: center middle;
+        color: $accent;
+        margin-top: 1;
+    }
+    """
+
+    BINDINGS = [
+        Binding("q", "app.quit", "Quit", show=False),
+    ]
+
+    def compose(self) -> ComposeResult:
+        """Compose loading screen."""
+        with Center():
+            with Container(id="loading-box"):
+                yield Static("[bold cyan]Generating Dream...[/bold cyan]", classes="loading-row")
+                yield Static("", classes="loading-row")
+                yield Static("This may take 30-60 seconds on first run", classes="loading-row")
+                yield Static("(Modal is warming up the GPU)", classes="loading-row")
+                yield Static("", classes="loading-row")
+                yield Static("Frame 0/0", id="progress")
+
+    def on_mount(self) -> None:
+        """Start generation when mounted."""
+        self.generate_frames_async()
+
+    @work(exclusive=True)
+    async def generate_frames_async(self) -> None:
+        """Generate frames in a worker thread."""
+        try:
+            # Run the blocking generate_frames in a thread
+            frames = await asyncio.to_thread(self.app.generate_frames_with_progress, self)
+            
+            if frames:
+                # Pop this loading screen and push the playback screen
+                self.app.pop_screen()
+                self.app.push_screen(DreamGenerationScreen(frames=frames))
+            else:
+                self.app.pop_screen()
+                self.app.notify("No frames generated", severity="error")
+        except Exception as e:
+            self.app.pop_screen()
+            self.app.notify(f"Error: {e}", severity="error")
+
+    def update_progress(self, current: int, total: int) -> None:
+        """Update progress display."""
+        try:
+            progress = self.query_one("#progress", Static)
+            progress.update(f"Frame {current}/{total}")
+        except Exception:
+            pass
 
 
 class DreamGenerationScreen(Screen):
@@ -831,10 +908,9 @@ class ASCIIDreamApp(App):
         """Initialize the app."""
         self.push_screen(MainMenuScreen())
 
-    def generate_frames(self) -> list:
-        """Generate frames using Modal backend. Called from main thread."""
+    def generate_frames_with_progress(self, loading_screen) -> list:
+        """Generate frames using Modal backend with progress updates."""
         if self.generator is None:
-            self.notify("No generator available. Run with: modal run run_tui.py", severity="error")
             return []
         
         config = self.config
@@ -858,11 +934,11 @@ class ASCIIDreamApp(App):
         frames = []
         frames_to_generate = config['frames']
         
-        # Show notification
-        self.notify(f"Generating {frames_to_generate} frames... (first run takes ~50s)", timeout=60)
-        
         for i in range(frames_to_generate):
             prompt = next(prompt_iter)
+            
+            # Update progress
+            loading_screen.update_progress(i, frames_to_generate)
             
             try:
                 # Generate image via Modal
@@ -877,6 +953,9 @@ class ASCIIDreamApp(App):
                 
             except Exception as e:
                 frames.append((f"[Error: {e}]", prompt))
+        
+        # Final progress update
+        loading_screen.update_progress(frames_to_generate, frames_to_generate)
         
         return frames
 
