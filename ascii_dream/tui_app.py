@@ -219,10 +219,9 @@ class SettingsScreen(Screen):
         Binding("q", "pop_screen", "Back", show=False),
         Binding("1", "config_prompt", "Prompt", show=False),
         Binding("2", "config_ratio", "Ratio", show=False),
-        Binding("3", "config_frames", "Frames", show=False),
-        Binding("4", "config_fps", "FPS", show=False),
-        Binding("5", "config_quality", "Quality", show=False),
-        Binding("6", "config_theme", "Theme", show=False),
+        Binding("3", "config_fps", "FPS", show=False),
+        Binding("4", "config_quality", "Quality", show=False),
+        Binding("5", "config_theme", "Theme", show=False),
     ]
 
     def compose(self) -> ComposeResult:
@@ -244,10 +243,6 @@ class SettingsScreen(Screen):
                         classes="setting-row"
                     )
                     yield Static(
-                        f"[dim]Frame Count:[/dim] [cyan]{config['frames']}[/cyan]",
-                        classes="setting-row"
-                    )
-                    yield Static(
                         f"[dim]Frame Rate:[/dim] [cyan]{config['fps']} fps[/cyan]",
                         classes="setting-row"
                     )
@@ -261,8 +256,8 @@ class SettingsScreen(Screen):
                     )
                     yield Static("", classes="setting-row")
 
-            yield Static("Press 1-6 to configure options  •  Esc to go back", id="settings-instructions")
-            yield Static("[yellow]1[/yellow][dim]:Prompt  [/dim][yellow]2[/yellow][dim]:Ratio  [/dim][yellow]3[/yellow][dim]:Frames  [/dim][yellow]4[/yellow][dim]:FPS  [/dim][yellow]5[/yellow][dim]:Quality  [/dim][yellow]6[/yellow][dim]:Theme[/dim]", id="settings-options")
+            yield Static("Press 1-5 to configure options  •  Esc to go back", id="settings-instructions")
+            yield Static("[yellow]1[/yellow][dim]:Prompt  [/dim][yellow]2[/yellow][dim]:Ratio  [/dim][yellow]3[/yellow][dim]:FPS  [/dim][yellow]4[/yellow][dim]:Quality  [/dim][yellow]5[/yellow][dim]:Theme[/dim]", id="settings-options")
 
     def action_config_prompt(self) -> None:
         """Configure prompt."""
@@ -271,10 +266,6 @@ class SettingsScreen(Screen):
     def action_config_ratio(self) -> None:
         """Configure aspect ratio."""
         self.app.push_screen(ConfigRatioScreen())
-
-    def action_config_frames(self) -> None:
-        """Configure frames."""
-        self.app.push_screen(ConfigFramesScreen())
 
     def action_config_fps(self) -> None:
         """Configure FPS."""
@@ -396,64 +387,6 @@ class ConfigRatioScreen(Screen):
     def handle_selection(self, event: OptionList.OptionSelected) -> None:
         """Handle ratio selection."""
         self.app.config['aspect_ratio'] = event.option.id
-        self.app.pop_screen()
-
-
-class ConfigFramesScreen(Screen):
-    """Frame count configuration screen."""
-
-    CSS = """
-    ConfigFramesScreen {
-        align: center middle;
-        background: $background;
-    }
-
-    #config-title {
-        width: 100%;
-        height: auto;
-        content-align: center middle;
-        color: $accent;
-        text-style: bold;
-        margin-bottom: 1;
-    }
-
-    OptionList {
-        width: 40;
-        height: auto;
-        background: $surface;
-        border: solid $accent;
-    }
-
-    #hint {
-        width: 100%;
-        height: auto;
-        content-align: center middle;
-        color: $text-muted;
-        margin-top: 2;
-    }
-    """
-
-    BINDINGS = [
-        Binding("escape", "pop_screen", "Back", show=False),
-    ]
-
-    def compose(self) -> ComposeResult:
-        """Compose frames config screen."""
-        with Center():
-            yield Static("Configure Frame Count", id="config-title")
-            
-            current = self.app.config['frames']
-            frame_options = [1, 3, 5, 10, 20]
-            
-            yield OptionList(
-                *[Option(f"{f} frames{' ← CURRENT' if f == current else ''}", id=str(f)) for f in frame_options]
-            )
-            yield Static("↑/↓: Navigate  •  Enter: Select  •  Esc: Back", id="hint")
-
-    @on(OptionList.OptionSelected)
-    def handle_selection(self, event: OptionList.OptionSelected) -> None:
-        """Handle frame count selection."""
-        self.app.config['frames'] = int(event.option.id)
         self.app.pop_screen()
 
 
@@ -682,7 +615,6 @@ class DreamScreen(Screen):
                 config = self.app.config
                 yield Static(f"Prompt: {config['prompt'] if config['prompt'] else 'Journey Mode'}", classes="dream-row")
                 yield Static(f"Aspect Ratio: {config['aspect_ratio']}", classes="dream-row")
-                yield Static(f"Frames: {config['frames']}", classes="dream-row")
                 yield Static(f"Quality: {'Fast' if config['fast'] else 'Normal'}", classes="dream-row")
                 yield Static(f"FPS: {config['fps']}", classes="dream-row")
                 yield Static("", classes="dream-row")
@@ -720,12 +652,13 @@ class LoadingScreen(Screen):
         margin: 1;
     }
 
-    #progress {
+    #timer {
         width: 100%;
         height: auto;
         content-align: center middle;
         color: $accent;
         margin-top: 1;
+        text-style: bold;
     }
     """
 
@@ -733,27 +666,45 @@ class LoadingScreen(Screen):
         Binding("q", "app.quit", "Quit", show=False),
     ]
 
+    def __init__(self):
+        super().__init__()
+        self.start_time = None
+
     def compose(self) -> ComposeResult:
         """Compose loading screen."""
         with Center():
             with Container(id="loading-box"):
-                yield Static("[bold cyan]Generating Dream...[/bold cyan]", classes="loading-row")
+                yield Static("[bold cyan]Loading Dream...[/bold cyan]", classes="loading-row")
                 yield Static("", classes="loading-row")
-                yield Static("This may take 30-60 seconds on first run", classes="loading-row")
-                yield Static("(Modal is warming up the GPU)", classes="loading-row")
+                yield Static("0s", id="timer")
                 yield Static("", classes="loading-row")
-                yield Static("Frame 0/0", id="progress")
+                yield Static("Should take approximately 60s", classes="loading-row")
 
     def on_mount(self) -> None:
         """Start generation when mounted."""
+        import time
+        self.start_time = time.time()
+        self.set_interval(0.1, self.update_timer)
         self.generate_frames_async()
+
+    def update_timer(self) -> None:
+        """Update elapsed time display."""
+        if self.start_time is None:
+            return
+        try:
+            import time
+            elapsed = int(time.time() - self.start_time)
+            timer = self.query_one("#timer", Static)
+            timer.update(f"{elapsed}s")
+        except Exception:
+            pass
 
     @work(exclusive=True)
     async def generate_frames_async(self) -> None:
         """Generate frames in a worker thread."""
         try:
             # Run the blocking generate_frames in a thread
-            frames = await asyncio.to_thread(self.app.generate_frames_with_progress, self)
+            frames = await asyncio.to_thread(self.app.generate_frames)
             
             if frames:
                 # Pop this loading screen and push the playback screen
@@ -765,14 +716,6 @@ class LoadingScreen(Screen):
         except Exception as e:
             self.app.pop_screen()
             self.app.notify(f"Error: {e}", severity="error")
-
-    def update_progress(self, current: int, total: int) -> None:
-        """Update progress display."""
-        try:
-            progress = self.query_one("#progress", Static)
-            progress.update(f"Frame {current}/{total}")
-        except Exception:
-            pass
 
 
 class DreamGenerationScreen(Screen):
@@ -897,7 +840,6 @@ class ASCIIDreamApp(App):
         self.config = {
             'prompt': '',
             'aspect_ratio': '1:1',
-            'frames': 3,
             'fast': True,  # Default to fast for better UX
             'fps': 2.0,
             'journey': 'abstract',
@@ -908,8 +850,8 @@ class ASCIIDreamApp(App):
         """Initialize the app."""
         self.push_screen(MainMenuScreen())
 
-    def generate_frames_with_progress(self, loading_screen) -> list:
-        """Generate frames using Modal backend with progress updates."""
+    def generate_frames(self) -> list:
+        """Generate frames using Modal backend."""
         if self.generator is None:
             return []
         
@@ -924,7 +866,7 @@ class ASCIIDreamApp(App):
         # Initialize converter
         converter = AsciiConverter(width=80)
         
-        # Get prompts
+        # Get prompts - generate infinite frames
         prompt_iter = get_evolver(
             journey=config['journey'],
             start_prompt=config['prompt'] if config['prompt'] else None,
@@ -932,13 +874,11 @@ class ASCIIDreamApp(App):
         )
         
         frames = []
-        frames_to_generate = config['frames']
+        # Generate a buffer of frames (10 frames for smooth looping)
+        frames_to_generate = 10
         
         for i in range(frames_to_generate):
             prompt = next(prompt_iter)
-            
-            # Update progress
-            loading_screen.update_progress(i, frames_to_generate)
             
             try:
                 # Generate image via Modal
@@ -953,9 +893,6 @@ class ASCIIDreamApp(App):
                 
             except Exception as e:
                 frames.append((f"[Error: {e}]", prompt))
-        
-        # Final progress update
-        loading_screen.update_progress(frames_to_generate, frames_to_generate)
         
         return frames
 
