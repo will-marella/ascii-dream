@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
-ASCII Dream - Beautiful TUI application with Textual.
+ASCII Dream - Beautiful TUI application with Textual + Modal backend.
 """
 import sys
+import io
+import asyncio
 from typing import Optional
 
 try:
@@ -11,8 +13,9 @@ try:
     from textual.widgets import Static, Button, Label, OptionList
     from textual.widgets.option_list import Option
     from textual.screen import Screen
-    from textual import on
+    from textual import on, work
     from textual.binding import Binding
+    from textual.worker import Worker, get_current_worker
 
     DEPS_AVAILABLE = True
 except ImportError as e:
@@ -20,6 +23,14 @@ except ImportError as e:
     print(f"Required library not available: {e}")
     print("Please install with: pip install textual")
     sys.exit(1)
+
+from PIL import Image
+from rich.text import Text
+
+# Import Modal backend and generation components
+from .generation.modal_backend import app as modal_app, get_generator
+from .generation.prompt_evolution import get_evolver
+from .rendering.ascii_converter import AsciiConverter
 
 
 # ASCII art title for ASCII DREAM
@@ -29,6 +40,21 @@ ASCII_TITLE = """ █████╗ ███████╗ ██████
 ██╔══██║╚════██║██║     ██║██║    ██║  ██║██╔══██╗██╔══╝  ██╔══██║██║╚██╔╝██║
 ██║  ██║███████║╚██████╗██║██║    ██████╔╝██║  ██║███████╗██║  ██║██║ ╚═╝ ██║
 ╚═╝  ╚═╝╚══════╝ ╚═════╝╚═╝╚═╝    ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝"""
+
+
+def get_dimensions_for_aspect_ratio(aspect_ratio: str, fast: bool) -> tuple[int, int]:
+    """Convert aspect ratio string to image dimensions."""
+    base_resolution = 256 if fast else 512
+    
+    aspect_ratios = {
+        "1:1": (base_resolution, base_resolution),
+        "16:9": (768 if not fast else 384, 432 if not fast else 216),
+        "9:16": (432 if not fast else 216, 768 if not fast else 384),
+        "4:3": (576 if not fast else 288, 432 if not fast else 216),
+        "3:4": (432 if not fast else 216, 576 if not fast else 288),
+    }
+    
+    return aspect_ratios.get(aspect_ratio, aspect_ratios["1:1"])
 
 
 class MainMenuScreen(Screen):
@@ -201,41 +227,42 @@ class SettingsScreen(Screen):
 
     def compose(self) -> ComposeResult:
         """Compose the settings screen."""
-        yield Static("⚙ Settings", id="settings-title")
+        with Center():
+            yield Static("⚙ Settings", id="settings-title")
 
-        with Container(id="settings-box"):
-            app = self.app
-            if hasattr(app, 'config'):
-                config = app.config
-                yield Static("", classes="setting-row")
-                yield Static(
-                    f"[dim]Prompt:[/dim] [cyan]{config['prompt'] if config['prompt'] else '(journey mode)'}[/cyan]",
-                    classes="setting-row"
-                )
-                yield Static(
-                    f"[dim]Aspect Ratio:[/dim] [cyan]{config['aspect_ratio']}[/cyan]",
-                    classes="setting-row"
-                )
-                yield Static(
-                    f"[dim]Frame Count:[/dim] [cyan]{config['frames']}[/cyan]",
-                    classes="setting-row"
-                )
-                yield Static(
-                    f"[dim]Frame Rate:[/dim] [cyan]{config['fps']} fps[/cyan]",
-                    classes="setting-row"
-                )
-                yield Static(
-                    f"[dim]Quality:[/dim] [cyan]{'Fast' if config['fast'] else 'Normal'}[/cyan]",
-                    classes="setting-row"
-                )
-                yield Static(
-                    f"[dim]Journey Theme:[/dim] [cyan]{config['journey'].title()}[/cyan]",
-                    classes="setting-row"
-                )
-                yield Static("", classes="setting-row")
+            with Container(id="settings-box"):
+                app = self.app
+                if hasattr(app, 'config'):
+                    config = app.config
+                    yield Static("", classes="setting-row")
+                    yield Static(
+                        f"[dim]Prompt:[/dim] [cyan]{config['prompt'] if config['prompt'] else '(journey mode)'}[/cyan]",
+                        classes="setting-row"
+                    )
+                    yield Static(
+                        f"[dim]Aspect Ratio:[/dim] [cyan]{config['aspect_ratio']}[/cyan]",
+                        classes="setting-row"
+                    )
+                    yield Static(
+                        f"[dim]Frame Count:[/dim] [cyan]{config['frames']}[/cyan]",
+                        classes="setting-row"
+                    )
+                    yield Static(
+                        f"[dim]Frame Rate:[/dim] [cyan]{config['fps']} fps[/cyan]",
+                        classes="setting-row"
+                    )
+                    yield Static(
+                        f"[dim]Quality:[/dim] [cyan]{'Fast' if config['fast'] else 'Normal'}[/cyan]",
+                        classes="setting-row"
+                    )
+                    yield Static(
+                        f"[dim]Journey Theme:[/dim] [cyan]{config['journey'].title()}[/cyan]",
+                        classes="setting-row"
+                    )
+                    yield Static("", classes="setting-row")
 
-        yield Static("Press 1-6 to configure options  •  Esc to go back", id="settings-instructions")
-        yield Static("[yellow]1[/yellow][dim]:Prompt  [/dim][yellow]2[/yellow][dim]:Ratio  [/dim][yellow]3[/yellow][dim]:Frames  [/dim][yellow]4[/yellow][dim]:FPS  [/dim][yellow]5[/yellow][dim]:Quality  [/dim][yellow]6[/yellow][dim]:Theme[/dim]", id="settings-options")
+            yield Static("Press 1-6 to configure options  •  Esc to go back", id="settings-instructions")
+            yield Static("[yellow]1[/yellow][dim]:Prompt  [/dim][yellow]2[/yellow][dim]:Ratio  [/dim][yellow]3[/yellow][dim]:Frames  [/dim][yellow]4[/yellow][dim]:FPS  [/dim][yellow]5[/yellow][dim]:Quality  [/dim][yellow]6[/yellow][dim]:Theme[/dim]", id="settings-options")
 
     def action_config_prompt(self) -> None:
         """Configure prompt."""
@@ -303,11 +330,14 @@ class ConfigPromptScreen(Screen):
 
     def compose(self) -> ComposeResult:
         """Compose prompt config screen."""
-        yield Static("Configure Prompt", id="config-title")
-        with Container(id="config-box"):
-            yield Static("\nNOTE: Interactive input not yet implemented in this Textual demo.\n", classes="setting-row")
-            yield Static("Options: Type custom prompt or 'journey' for evolving themes\n", classes="setting-row")
-        yield Static("Press Esc to go back", id="hint")
+        with Center():
+            yield Static("Configure Prompt", id="config-title")
+            with Container(id="config-box"):
+                yield Static("\nLeave empty for Journey Mode (evolving prompts)\n", classes="setting-row")
+                yield Static("Or set a custom prompt in settings\n", classes="setting-row")
+                current = self.app.config['prompt'] if self.app.config['prompt'] else "(journey mode)"
+                yield Static(f"[dim]Current:[/dim] [cyan]{current}[/cyan]\n", classes="setting-row")
+            yield Static("Press Esc to go back", id="hint")
 
 
 class ConfigRatioScreen(Screen):
@@ -351,15 +381,16 @@ class ConfigRatioScreen(Screen):
 
     def compose(self) -> ComposeResult:
         """Compose ratio config screen."""
-        yield Static("Configure Aspect Ratio", id="config-title")
+        with Center():
+            yield Static("Configure Aspect Ratio", id="config-title")
 
-        current = self.app.config['aspect_ratio']
-        options = ["1:1", "16:9", "9:16", "4:3", "3:4"]
+            current = self.app.config['aspect_ratio']
+            options = ["1:1", "16:9", "9:16", "4:3", "3:4"]
 
-        yield OptionList(
-            *[Option(f"{r}{' ← CURRENT' if r == current else ''}", id=r) for r in options]
-        )
-        yield Static("↑/↓: Navigate  •  Enter: Select  •  Esc: Back", id="hint")
+            yield OptionList(
+                *[Option(f"{r}{' ← CURRENT' if r == current else ''}", id=r) for r in options]
+            )
+            yield Static("↑/↓: Navigate  •  Enter: Select  •  Esc: Back", id="hint")
 
     @on(OptionList.OptionSelected)
     def handle_selection(self, event: OptionList.OptionSelected) -> None:
@@ -383,15 +414,14 @@ class ConfigFramesScreen(Screen):
         content-align: center middle;
         color: $accent;
         text-style: bold;
-        margin-bottom: 2;
+        margin-bottom: 1;
     }
 
-    #config-box {
-        width: 70;
+    OptionList {
+        width: 40;
         height: auto;
-        border: solid $accent;
-        padding: 1 2;
         background: $surface;
+        border: solid $accent;
     }
 
     #hint {
@@ -409,13 +439,22 @@ class ConfigFramesScreen(Screen):
 
     def compose(self) -> ComposeResult:
         """Compose frames config screen."""
-        yield Static("Configure Frame Count", id="config-title")
-        with Container(id="config-box"):
+        with Center():
+            yield Static("Configure Frame Count", id="config-title")
+            
             current = self.app.config['frames']
-            yield Static(f"\nCurrent: {current}", classes="setting-row")
-            yield Static("\nNOTE: Interactive input not yet implemented.\n", classes="setting-row")
-            yield Static("Range: 1-50 frames\n", classes="setting-row")
-        yield Static("Press Esc to go back", id="hint")
+            frame_options = [1, 3, 5, 10, 20]
+            
+            yield OptionList(
+                *[Option(f"{f} frames{' ← CURRENT' if f == current else ''}", id=str(f)) for f in frame_options]
+            )
+            yield Static("↑/↓: Navigate  •  Enter: Select  •  Esc: Back", id="hint")
+
+    @on(OptionList.OptionSelected)
+    def handle_selection(self, event: OptionList.OptionSelected) -> None:
+        """Handle frame count selection."""
+        self.app.config['frames'] = int(event.option.id)
+        self.app.pop_screen()
 
 
 class ConfigFPSScreen(Screen):
@@ -433,15 +472,14 @@ class ConfigFPSScreen(Screen):
         content-align: center middle;
         color: $accent;
         text-style: bold;
-        margin-bottom: 2;
+        margin-bottom: 1;
     }
 
-    #config-box {
-        width: 70;
+    OptionList {
+        width: 40;
         height: auto;
-        border: solid $accent;
-        padding: 1 2;
         background: $surface;
+        border: solid $accent;
     }
 
     #hint {
@@ -459,13 +497,22 @@ class ConfigFPSScreen(Screen):
 
     def compose(self) -> ComposeResult:
         """Compose FPS config screen."""
-        yield Static("Configure Frame Rate", id="config-title")
-        with Container(id="config-box"):
+        with Center():
+            yield Static("Configure Frame Rate", id="config-title")
+            
             current = self.app.config['fps']
-            yield Static(f"\nCurrent: {current} fps", classes="setting-row")
-            yield Static("\nNOTE: Interactive input not yet implemented.\n", classes="setting-row")
-            yield Static("Range: 0.5-5.0 fps\n", classes="setting-row")
-        yield Static("Press Esc to go back", id="hint")
+            fps_options = [0.5, 1.0, 2.0, 3.0, 5.0]
+            
+            yield OptionList(
+                *[Option(f"{f} fps{' ← CURRENT' if f == current else ''}", id=str(f)) for f in fps_options]
+            )
+            yield Static("↑/↓: Navigate  •  Enter: Select  •  Esc: Back", id="hint")
+
+    @on(OptionList.OptionSelected)
+    def handle_selection(self, event: OptionList.OptionSelected) -> None:
+        """Handle FPS selection."""
+        self.app.config['fps'] = float(event.option.id)
+        self.app.pop_screen()
 
 
 class ConfigQualityScreen(Screen):
@@ -509,15 +556,16 @@ class ConfigQualityScreen(Screen):
 
     def compose(self) -> ComposeResult:
         """Compose quality config screen."""
-        yield Static("Configure Quality", id="config-title")
+        with Center():
+            yield Static("Configure Quality", id="config-title")
 
-        current = "fast" if self.app.config['fast'] else "normal"
+            current = "fast" if self.app.config['fast'] else "normal"
 
-        yield OptionList(
-            Option(f"Fast (256x256, quicker){' ← CURRENT' if current == 'fast' else ''}", id="fast"),
-            Option(f"Normal (512x512, higher quality){' ← CURRENT' if current == 'normal' else ''}", id="normal"),
-        )
-        yield Static("↑/↓: Navigate  •  Enter: Select  •  Esc: Back", id="hint")
+            yield OptionList(
+                Option(f"Fast (256x256, quicker){' ← CURRENT' if current == 'fast' else ''}", id="fast"),
+                Option(f"Normal (512x512, higher quality){' ← CURRENT' if current == 'normal' else ''}", id="normal"),
+            )
+            yield Static("↑/↓: Navigate  •  Enter: Select  •  Esc: Back", id="hint")
 
     @on(OptionList.OptionSelected)
     def handle_selection(self, event: OptionList.OptionSelected) -> None:
@@ -567,15 +615,16 @@ class ConfigThemeScreen(Screen):
 
     def compose(self) -> ComposeResult:
         """Compose theme config screen."""
-        yield Static("Configure Journey Theme", id="config-title")
+        with Center():
+            yield Static("Configure Journey Theme", id="config-title")
 
-        current = self.app.config['journey']
-        themes = ["abstract", "nature", "cosmic", "liquid"]
+            current = self.app.config['journey']
+            themes = ["abstract", "nature", "cosmic", "liquid"]
 
-        yield OptionList(
-            *[Option(f"{t.title()}{' ← CURRENT' if t == current else ''}", id=t) for t in themes]
-        )
-        yield Static("↑/↓: Navigate  •  Enter: Select  •  Esc: Back", id="hint")
+            yield OptionList(
+                *[Option(f"{t.title()}{' ← CURRENT' if t == current else ''}", id=t) for t in themes]
+            )
+            yield Static("↑/↓: Navigate  •  Enter: Select  •  Esc: Back", id="hint")
 
     @on(OptionList.OptionSelected)
     def handle_selection(self, event: OptionList.OptionSelected) -> None:
@@ -585,7 +634,7 @@ class ConfigThemeScreen(Screen):
 
 
 class DreamScreen(Screen):
-    """Dream generation screen (placeholder)."""
+    """Dream configuration confirmation screen."""
 
     CSS = """
     DreamScreen {
@@ -625,25 +674,123 @@ class DreamScreen(Screen):
 
     def compose(self) -> ComposeResult:
         """Compose dream screen."""
-        with Container(id="dream-box"):
-            yield Static("[bold green]Dream Configuration Ready![/bold green]", classes="dream-row")
-            yield Static("", classes="dream-row")
+        with Center():
+            with Container(id="dream-box"):
+                yield Static("[bold green]Dream Configuration Ready![/bold green]", classes="dream-row")
+                yield Static("", classes="dream-row")
 
-            config = self.app.config
-            yield Static(f"Prompt: {config['prompt'] if config['prompt'] else 'Journey Mode'}", classes="dream-row")
-            yield Static(f"Aspect Ratio: {config['aspect_ratio']}", classes="dream-row")
-            yield Static(f"Frames: {config['frames']}", classes="dream-row")
-            yield Static(f"Quality: {'Fast' if config['fast'] else 'Normal'}", classes="dream-row")
-            yield Static(f"FPS: {config['fps']}", classes="dream-row")
-            yield Static("", classes="dream-row")
-            yield Static("[dim]Press Enter to start generation (placeholder)[/dim]", classes="dream-row")
+                config = self.app.config
+                yield Static(f"Prompt: {config['prompt'] if config['prompt'] else 'Journey Mode'}", classes="dream-row")
+                yield Static(f"Aspect Ratio: {config['aspect_ratio']}", classes="dream-row")
+                yield Static(f"Frames: {config['frames']}", classes="dream-row")
+                yield Static(f"Quality: {'Fast' if config['fast'] else 'Normal'}", classes="dream-row")
+                yield Static(f"FPS: {config['fps']}", classes="dream-row")
+                yield Static("", classes="dream-row")
+                yield Static("[bold cyan]Press Enter to start dreaming![/bold cyan]", classes="dream-row")
 
-        yield Static("Enter: Start  •  Esc: Back  •  Q: Quit", id="hint")
+            yield Static("Enter: Start  •  Esc: Back  •  Q: Quit", id="hint")
 
     def action_start_generation(self) -> None:
-        """Start generation (placeholder)."""
-        # TODO: Integrate with backend
-        self.app.exit(message="Dream generation would start here!")
+        """Start the actual dream generation."""
+        # Generate frames synchronously (in Modal context), then show playback screen
+        frames = self.app.generate_frames()
+        if frames:
+            self.app.push_screen(DreamGenerationScreen(frames=frames))
+
+
+class DreamGenerationScreen(Screen):
+    """The actual dream generation and display screen."""
+
+    CSS = """
+    DreamGenerationScreen {
+        align: center middle;
+        background: #000000;
+    }
+
+    #ascii-display {
+        width: 100%;
+        height: auto;
+        content-align: center middle;
+        background: #000000;
+    }
+
+    #status {
+        width: 100%;
+        height: auto;
+        content-align: center middle;
+        color: $text-muted;
+        dock: bottom;
+        padding: 1;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "stop_and_back", "Back", show=False),
+        Binding("q", "stop_and_quit", "Quit", show=False),
+        Binding("space", "pause_resume", "Pause/Resume", show=False),
+    ]
+
+    def __init__(self, frames: list):
+        super().__init__()
+        self.frames = frames  # Pre-generated frames passed in
+        self.current_frame_index = 0
+        self.is_paused = False
+
+    def compose(self) -> ComposeResult:
+        """Compose the generation screen."""
+        yield Static("", id="ascii-display")
+        yield Static("Esc: Back  •  Q: Quit  •  Space: Pause/Resume", id="status")
+
+    def on_mount(self) -> None:
+        """Start playback when screen mounts."""
+        # Start the animation timer
+        fps = self.app.config['fps']
+        interval = 1.0 / fps
+        self.set_interval(interval, self._show_next_frame)
+        
+        # Show first frame immediately
+        self._show_next_frame()
+
+    def _show_next_frame(self) -> None:
+        """Display the next frame in the animation."""
+        if self.is_paused or not self.frames:
+            return
+        
+        ascii_art, prompt = self.frames[self.current_frame_index]
+        
+        try:
+            display = self.query_one("#ascii-display", Static)
+            # Use Text.from_ansi to properly handle ANSI codes in ASCII art
+            art_text = Text.from_ansi(ascii_art)
+            # Add prompt as a separate line using Text (not f-string to avoid markup issues)
+            art_text.append("\n\n")
+            art_text.append(prompt, style="dim italic")
+            display.update(art_text)
+        except Exception:
+            pass
+        
+        # Move to next frame
+        self.current_frame_index = (self.current_frame_index + 1) % len(self.frames)
+
+    def action_pause_resume(self) -> None:
+        """Toggle pause/resume."""
+        self.is_paused = not self.is_paused
+        try:
+            status = self.query_one("#status", Static)
+            if self.is_paused:
+                status.update("[yellow]PAUSED[/yellow]  •  Space: Resume  •  Esc: Back  •  Q: Quit")
+            else:
+                status.update("Esc: Back  •  Q: Quit  •  Space: Pause/Resume")
+        except Exception:
+            pass
+
+    def action_stop_and_back(self) -> None:
+        """Stop and go back."""
+        self.app.pop_screen()
+
+    def action_stop_and_quit(self) -> None:
+        """Stop and quit app."""
+        self.app.exit()
 
 
 class ASCIIDreamApp(App):
@@ -655,7 +802,6 @@ class ASCIIDreamApp(App):
     }
     """
 
-    # Define color scheme similar to p2pong
     COLORS = {
         "background": "#000000",
         "surface": "#141414",
@@ -668,13 +814,14 @@ class ASCIIDreamApp(App):
         "text-muted": "#666666",
     }
 
-    def __init__(self):
+    def __init__(self, generator=None):
         super().__init__()
+        self.generator = generator  # Modal generator passed from entrypoint
         self.config = {
             'prompt': '',
             'aspect_ratio': '1:1',
             'frames': 3,
-            'fast': False,
+            'fast': True,  # Default to fast for better UX
             'fps': 2.0,
             'journey': 'abstract',
             'custom_prompt': False
@@ -684,15 +831,74 @@ class ASCIIDreamApp(App):
         """Initialize the app."""
         self.push_screen(MainMenuScreen())
 
+    def generate_frames(self) -> list:
+        """Generate frames using Modal backend. Called from main thread."""
+        if self.generator is None:
+            self.notify("No generator available. Run with: modal run run_tui.py", severity="error")
+            return []
+        
+        config = self.config
+        
+        # Get dimensions
+        width, height = get_dimensions_for_aspect_ratio(
+            config['aspect_ratio'],
+            config['fast']
+        )
+        
+        # Initialize converter
+        converter = AsciiConverter(width=80)
+        
+        # Get prompts
+        prompt_iter = get_evolver(
+            journey=config['journey'],
+            start_prompt=config['prompt'] if config['prompt'] else None,
+            custom=bool(config['prompt']),
+        )
+        
+        frames = []
+        frames_to_generate = config['frames']
+        
+        # Show notification
+        self.notify(f"Generating {frames_to_generate} frames... (first run takes ~50s)", timeout=60)
+        
+        for i in range(frames_to_generate):
+            prompt = next(prompt_iter)
+            
+            try:
+                # Generate image via Modal
+                image_bytes = self.generator.generate.remote(
+                    prompt, height=height, width=width, seed=None
+                )
+                
+                # Convert to ASCII
+                image = Image.open(io.BytesIO(image_bytes))
+                ascii_art = converter.convert(image)
+                frames.append((ascii_art, prompt))
+                
+            except Exception as e:
+                frames.append((f"[Error: {e}]", prompt))
+        
+        return frames
 
-def main():
+
+def main(generator=None):
     """Main entry point for ASCII Dream TUI."""
-    app = ASCIIDreamApp()
+    app = ASCIIDreamApp(generator=generator)
     result = app.run()
     if result:
         print(result)
     return 0
 
 
+# Modal entrypoint for running with: modal run ascii_dream/tui_app.py
+@modal_app.local_entrypoint()
+def tui_main():
+    """Modal-decorated entry point - initializes generator in Modal context."""
+    # Get the generator while we're in the Modal app context
+    generator = get_generator()
+    return main(generator=generator)
+
+
 if __name__ == "__main__":
+    # Running without Modal - generator will be None
     sys.exit(main())
