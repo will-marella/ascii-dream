@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/demo-enhanced.gif" alt="ASCII Dream Demo" width="900">
+  <img src="assets/demo.gif" alt="ASCII Dream Demo" width="900">
 </p>
 
 ## Get Started
