@@ -36,7 +36,3 @@ ascii-dream
 - **Image Queue** – Async producer-consumer that prefetches images while current ones display
 - **ASCII Converter** – Transforms PIL images to colored ASCII art with smart width detection
 - **TUI (Textual)** – Full interactive menu system with real-time generation display
-
-## License
-
-MIT License – See LICENSE file for details.
