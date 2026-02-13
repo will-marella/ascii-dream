@@ -14,7 +14,7 @@
 
 ```bash
 # Install from GitHub
-pip install git+https://github.com/will-marella/ascii-dream.git
+git clone https://github.com/will-marella/ascii-dream.git
 
 # Authenticate with Modal (one-time setup)
 modal setup
