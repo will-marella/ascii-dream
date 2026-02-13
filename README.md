@@ -1,13 +1,10 @@
-```
- █████╗ ███████╗ ██████╗██╗██╗    ██████╗ ██████╗ ███████╗ █████╗ ███╗   ███╗
-██╔══██╗██╔════╝██╔════╝██║██║    ██╔══██╗██╔══██╗██╔════╝██╔══██╗████╗ ████║
-███████║███████╗██║     ██║██║    ██║  ██║██████╔╝█████╗  ███████║██╔████╔██║
-██╔══██║╚════██║██║     ██║██║    ██║  ██║██╔══██╗██╔══╝  ██╔══██║██║╚██╔╝██║
-██║  ██║███████║╚██████╗██║██║    ██████╔╝██║  ██║███████╗██║  ██║██║ ╚═╝ ██║
-╚═╝  ╚═╝╚══════╝ ╚═════╝╚═╝╚═╝    ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝
-```
+<p align="center">
+  <img src="assets/ascii-dream-tui.png" alt="ASCII Dream" width="800">
+</p>
 
-> Generate endless evolving ASCII art from AI-powered images. Watch as your terminal transforms into a dreamlike canvas of characters and colors.
+<p align="center">
+  <em>Generate beautiful, evolving ASCII art from AI dreams</em>
+</p>
 
 ## ✨ Quick Start
 
