@@ -13,21 +13,21 @@
 ## Get Started
 
 ```bash
-# Install from GitHub
+# Install ascii-dream
 git clone https://github.com/will-marella/ascii-dream.git
+cd ascii-dream
+pip install -e .
 
-# Authenticate with Modal (one-time setup)
-modal setup
+# Create a modal account: https://modal.com/
+
+# Install Modal and Authenticate
+pip install modal
+modal setup # (If that fails, try: python -m modal setup)
+# Guide: https://modal.com/docs/guide
 
 # Run it!
 ascii-dream
 ```
-
-## Requirements
-
-- Python 3.8+
-- [Modal](https://modal.com) account (free) – Provides GPU access for AI generation, with generous usage limits
-
 
 ## How It Works
 
