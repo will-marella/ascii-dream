@@ -6,6 +6,10 @@
   <em>Generate beautiful, evolving ASCII art from AI dreams</em>
 </p>
 
+<p align="center">
+  <img src="assets/demo.gif" alt="ASCII Dream Demo" width="900">
+</p>
+
 ## ✨ Quick Start
 
 ```bash
