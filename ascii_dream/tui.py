@@ -420,13 +420,46 @@ def main(generator=None):
     return 0
 
 
-# Modal entrypoint for running with: modal run ascii_dream/tui_app.py
+# Modal entrypoint for running with: modal run ascii_dream.tui
 @modal_app.local_entrypoint()
 def tui_main():
     """Modal-decorated entry point - initializes generator in Modal context."""
     # Get the generator while we're in the Modal app context
     generator = get_generator()
     return main(generator=generator)
+
+
+def cli_entrypoint():
+    """
+    CLI wrapper entry point for 'ascii-dream' command.
+    
+    This function is called when user types 'ascii-dream' after pip install.
+    It automatically wraps the call in 'modal run' to provide GPU context.
+    """
+    import subprocess
+    import shutil
+    
+    # Check if modal CLI is installed
+    if not shutil.which('modal'):
+        print("❌ Error: Modal CLI not found!")
+        print("   Please install it: pip install modal")
+        print("   Then authenticate: modal setup")
+        sys.exit(1)
+    
+    # Run the app via modal
+    try:
+        # Use -m to run as module (cleaner than file path)
+        result = subprocess.run(
+            ['modal', 'run', '-m', 'ascii_dream.tui'],
+            check=False  # Don't raise on non-zero exit
+        )
+        sys.exit(result.returncode)
+    except KeyboardInterrupt:
+        # User pressed Ctrl+C - clean exit
+        sys.exit(0)
+    except Exception as e:
+        print(f"❌ Error launching ASCII Dream: {e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
