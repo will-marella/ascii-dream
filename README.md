@@ -1,49 +1,43 @@
-# ASCII Dream
-
-Generate endless evolving ASCII art from AI-powered images. Watch as your terminal transforms into a dreamlike canvas of characters and colors.
-
 ```
-[GIF PREVIEW - Coming Soon!]
+ █████╗ ███████╗ ██████╗██╗██╗    ██████╗ ██████╗ ███████╗ █████╗ ███╗   ███╗
+██╔══██╗██╔════╝██╔════╝██║██║    ██╔══██╗██╔══██╗██╔════╝██╔══██╗████╗ ████║
+███████║███████╗██║     ██║██║    ██║  ██║██████╔╝█████╗  ███████║██╔████╔██║
+██╔══██║╚════██║██║     ██║██║    ██║  ██║██╔══██╗██╔══╝  ██╔══██║██║╚██╔╝██║
+██║  ██║███████║╚██████╗██║██║    ██████╔╝██║  ██║███████╗██║  ██║██║ ╚═╝ ██║
+╚═╝  ╚═╝╚══════╝ ╚═════╝╚═╝╚═╝    ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝
 ```
 
-## Features
+> Generate endless evolving ASCII art from AI-powered images. Watch as your terminal transforms into a dreamlike canvas of characters and colors.
+
+## ✨ Quick Start
+
+```bash
+# Install from GitHub
+pip install git+https://github.com/will-marella/ascii-dream.git
+
+# Authenticate with Modal (one-time setup)
+modal setup
+
+# Run it!
+ascii-dream
+```
+
+That's it! First run downloads the AI model (~2GB, one-time only).
+
+## 🎨 Features
 
 - **AI-Powered Generation** – Uses Stability AI's SD-Turbo model for instant image creation
 - **Real-Time ASCII Rendering** – Converts images to beautiful colored ASCII art with proper terminal color support
-- **Interactive TUI** – Beautiful menu-driven interface for configuration and live generation
-- **Customizable Dreams** – Control aspect ratio, resolution, frame rate, and more
+- **Interactive TUI** – Simple, beautiful menu interface
+- **Infinite Dreams** – Continuously generates unique art at 1 FPS
 - **Journey Modes** – Auto-evolving prompts that take you through themed visual journeys (abstract, nature, cosmic, liquid)
-- **Multi-Frame Animation** – Generate multiple frames and watch them cycle in real-time
 
-## Installation
-
-### Prerequisites
+## 📋 Requirements
 
 - Python 3.8+
-- Modal account (free) – [Create one here](https://modal.com)
+- [Modal](https://modal.com) account (free) – Provides GPU access for AI generation
 
-### Setup
-
-1. **Install the package:**
-   ```bash
-   pip install -e .
-   ```
-
-2. **Configure Modal token:**
-   ```bash
-   modal token new
-   ```
-
-3. **Run it:**
-   ```bash
-   ascii-dream
-   ```
-
-That's it! First run will download the AI model (~2GB, one-time only).
-
-## Usage
-
-### Launch the TUI
+## 🎮 Usage
 
 Simply run:
 
@@ -51,17 +45,11 @@ Simply run:
 ascii-dream
 ```
 
-From the interactive menu you can:
-- **Start Dream** – Begin generating and displaying ASCII art
-- **Configure Settings** – Adjust:
-  - Custom prompt (or use journey mode)
-  - Aspect ratio (1:1, 16:9, 9:16, 4:3, 3:4)
-  - Number of frames to cycle (1-50)
-  - Frame rate / FPS (0.5-5.0)
-  - Quality (fast 256×256 or normal 512×512)
-  - Journey theme (abstract, nature, cosmic, liquid)
-
-Press **Q** or **Esc** to quit at any time.
+**Controls:**
+- **Enter** – Start dreaming
+- **Space** – Pause/resume
+- **Esc** – Go back
+- **Q** – Quit
 
 ## How It Works
 
