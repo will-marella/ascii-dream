@@ -44,4 +44,4 @@ Repository = "https://github.com/will-marella/ascii-dream"
 Issues = "https://github.com/will-marella/ascii-dream/issues"
 
 [project.scripts]
-ascii-dream = "ascii_dream.tui_app:main"
+ascii-dream = "ascii_dream.tui:main"

@@ -21,9 +21,9 @@ from PIL import Image
 from rich.text import Text
 
 # Import Modal backend and generation components
-from .generation.modal_backend import app as modal_app, get_generator
-from .generation.prompt_evolution import get_evolver
-from .rendering.ascii_converter import AsciiConverter
+from .modal_backend import app as modal_app, get_generator
+from .prompt_evolution import get_evolver
+from .ascii_converter import AsciiConverter
 
 # Define config constants
 IMAGE_SIZE = 256  # 1:1 aspect ratio, fast mode
